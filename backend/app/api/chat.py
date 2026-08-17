@@ -144,6 +144,19 @@ async def _execute_trade(trade: Trade) -> ChatAction:
             price=None,
             detail=str(exc.detail),
         )
+    except Exception:
+        # Contract §6: a failed action is a 200 carrying a failed action, never
+        # a 500 that loses the assistant's reply and the rest of the batch.
+        logger.exception("Unexpected error executing %s %s", trade.side, ticker)
+        return ChatAction(
+            type="trade",
+            status="failed",
+            ticker=ticker,
+            side=trade.side,
+            quantity=trade.quantity,
+            price=None,
+            detail=f"Could not execute the {trade.side} of {ticker} due to an internal error",
+        )
 
     executed = result.trade
     verb = "Bought" if executed.side == "buy" else "Sold"
@@ -178,6 +191,16 @@ async def _apply_watchlist_change(change: WatchlistChange) -> ChatAction:
             ticker=ticker,
             action=change.action,
             detail=str(exc.detail),
+        )
+    except Exception:
+        # Contract §6: see _execute_trade.
+        logger.exception("Unexpected error on watchlist %s of %s", change.action, ticker)
+        return ChatAction(
+            type="watchlist",
+            status="failed",
+            ticker=ticker,
+            action=change.action,
+            detail=f"Could not {change.action} {ticker} due to an internal error",
         )
 
     return ChatAction(

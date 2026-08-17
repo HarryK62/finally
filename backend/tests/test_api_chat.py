@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -14,6 +16,7 @@ from app import runtime
 from app.api import chat as chat_api
 from app.llm.client import LLMUnavailableError
 from app.services import portfolio as portfolio_service
+from app.services import watchlist as watchlist_service
 from tests.test_services_watchlist import FakeSource
 
 
@@ -114,6 +117,35 @@ def test_a_buy_beyond_the_cash_balance_fails_cleanly(client):
 
     assert body["actions"][0]["status"] == "failed"
     assert body["actions"][0]["detail"].startswith("Insufficient cash")
+
+
+def test_a_non_http_error_in_a_trade_fails_the_action_not_the_request(client, monkeypatch):
+    """Contract §6: failures never 500, whatever the service raised."""
+
+    def boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(portfolio_service, "execute_trade", boom)
+    body = _post(client, "buy 1 AAPL")
+
+    action = body["actions"][0]
+    assert action["status"] == "failed"
+    assert action["price"] is None
+    assert "internal error" in action["detail"]
+    assert "Heads up" in body["message"]
+
+
+def test_a_non_http_error_in_a_watchlist_change_fails_the_action_only(client, monkeypatch):
+    async def boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(watchlist_service, "add_ticker", boom)
+    body = _post(client, "add PYPL")
+
+    action = body["actions"][0]
+    assert action["type"] == "watchlist"
+    assert action["status"] == "failed"
+    assert "internal error" in action["detail"]
 
 
 # --- Watchlist changes ---
