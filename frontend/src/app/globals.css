@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/*
+ * FinAlly terminal theme. Brand values are fixed by planning/CONTRACTS.md §8 —
+ * accent #ecad0a, primary #209dd7, secondary #753991, background #0d1117.
+ * Everything else is derived to sit on that background at >= 3:1 contrast.
+ */
+@theme {
+  --color-terminal: #0d1117;
+  --color-panel: #10151c;
+  --color-panel-raised: #161c25;
+  --color-panel-hover: #1b2230;
+  --color-border: #232b36;
+  --color-border-strong: #303a48;
+
+  --color-ink: #e6edf3;
+  --color-ink-dim: #9aa7b4;
+  --color-muted: #6e7c8c;
+
+  --color-accent: #ecad0a;
+  --color-primary: #209dd7;
+  --color-secondary: #753991;
+  --color-secondary-hover: #8b47ac;
+
+  --color-up: #3fb950;
+  --color-down: #f85149;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-terminal);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* A trading terminal is a fixed viewport: panels scroll, the page does not. */
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular figures everywhere numbers change in place, so columns never jitter. */
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * Price flash: a brief tinted wash that fades over ~500ms. Applied by adding a
+ * class on tick and removing it when the animation ends, so a rapid sequence of
+ * ticks re-triggers cleanly.
+ */
+@keyframes flash-up {
+  0% {
+    background-color: color-mix(in srgb, var(--color-up) 34%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    background-color: color-mix(in srgb, var(--color-down) 34%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.flash-up {
+  animation: flash-up 500ms ease-out;
+}
+
+.flash-down {
+  animation: flash-down 500ms ease-out;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up,
+  .flash-down,
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* Slim scrollbars — full-width chrome scrollbars wreck a dense layout. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Firefox renders number spinners even in a dark UI; they add nothing here. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-primary);
+  outline-offset: 1px;
+}
