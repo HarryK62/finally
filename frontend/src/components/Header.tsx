@@ -16,6 +16,7 @@ function Stat({
   flashClass = "",
   flashKey = 0,
   size = "md",
+  className = "",
 }: {
   label: string;
   value: string;
@@ -23,9 +24,10 @@ function Stat({
   flashClass?: string;
   flashKey?: number;
   size?: "md" | "lg";
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 px-4">
+    <div className={`flex flex-col gap-0.5 px-2 lg:px-4 ${className}`}>
       <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted">
         {label}
       </span>

@@ -41,15 +41,23 @@ class FakeSource(MarketDataSource):
 
 
 class CacheEvictingSource(FakeSource):
-    """A fake that also drops the cached price, exactly as the simulator does.
+    """A fake that behaves like the running simulator around the price cache.
 
-    Needed by the position-lifecycle tests below: the bug they pin is that losing
-    the cached price makes a holding unpriceable and therefore unsellable.
+    Two details matter to the position-lifecycle tests below: ``remove_ticker``
+    evicts the cached price (as ``SimulatorDataSource`` does), and prices only
+    arrive for tickers the source is still tracking. Together they reproduce the
+    bug those tests pin — a dropped feed leaves a holding unpriceable, and so
+    unsellable.
     """
 
     async def remove_ticker(self, ticker: str) -> None:
         await super().remove_ticker(ticker)
         runtime.get_price_cache().remove(ticker)
+
+    def tick(self, ticker: str, price: float) -> None:
+        """Publish a price, but only for a ticker the feed still carries."""
+        if ticker in self.tickers:
+            runtime.get_price_cache().update(ticker, price)
 
 
 @pytest.fixture
@@ -62,7 +70,9 @@ def fake_source(price_cache):
 
 @pytest.fixture
 def evicting_source(price_cache):
+    """A running feed carrying the default watchlist, as the lifespan starts it."""
     source = CacheEvictingSource()
+    source.tickers = list(SEED_PRICES)
     runtime.set_market_source(source)
     yield source
     runtime.set_market_source(None)
@@ -162,7 +172,7 @@ async def _trade(ticker: str, quantity: float, side: str):
 
 
 async def test_removing_a_held_ticker_keeps_it_on_the_feed(temp_db, price_cache, evicting_source):
-    price_cache.update("TSLA", 250.03)
+    evicting_source.tick("TSLA", 250.03)
     await _trade("TSLA", 5, "buy")
 
     await svc.remove_ticker("TSLA")
@@ -173,11 +183,11 @@ async def test_removing_a_held_ticker_keeps_it_on_the_feed(temp_db, price_cache,
 
 
 async def test_a_removed_but_held_position_still_prices_live(temp_db, price_cache, evicting_source):
-    price_cache.update("TSLA", 250.00)
+    evicting_source.tick("TSLA", 250.00)
     await _trade("TSLA", 5, "buy")
     await svc.remove_ticker("TSLA")
 
-    price_cache.update("TSLA", 260.00)
+    evicting_source.tick("TSLA", 260.00)  # A feed tick after the removal
 
     position = portfolio_svc.get_portfolio().positions[0]
     assert position.ticker == "TSLA"
@@ -187,10 +197,10 @@ async def test_a_removed_but_held_position_still_prices_live(temp_db, price_cach
 
 
 async def test_a_removed_but_held_position_can_still_be_sold(temp_db, price_cache, evicting_source):
-    price_cache.update("TSLA", 250.00)
+    evicting_source.tick("TSLA", 250.00)
     await _trade("TSLA", 5, "buy")
     await svc.remove_ticker("TSLA")
-    price_cache.update("TSLA", 260.00)
+    evicting_source.tick("TSLA", 260.00)
 
     result = await _trade("TSLA", 5, "sell")
 
@@ -203,7 +213,7 @@ async def test_a_removed_but_held_position_can_still_be_sold(temp_db, price_cach
 async def test_closing_out_an_unwatched_position_releases_the_feed(
     temp_db, price_cache, evicting_source
 ):
-    price_cache.update("TSLA", 250.00)
+    evicting_source.tick("TSLA", 250.00)
     await _trade("TSLA", 5, "buy")
     await svc.remove_ticker("TSLA")
 
@@ -214,7 +224,7 @@ async def test_closing_out_an_unwatched_position_releases_the_feed(
 
 
 async def test_a_partial_sell_keeps_the_feed(temp_db, price_cache, evicting_source):
-    price_cache.update("TSLA", 250.00)
+    evicting_source.tick("TSLA", 250.00)
     await _trade("TSLA", 5, "buy")
     await svc.remove_ticker("TSLA")
 
@@ -226,7 +236,7 @@ async def test_a_partial_sell_keeps_the_feed(temp_db, price_cache, evicting_sour
 
 async def test_closing_out_a_watched_position_keeps_the_feed(temp_db, price_cache, evicting_source):
     """AAPL is still on the watchlist, so the user is still watching its price."""
-    price_cache.update("AAPL", 190.00)
+    evicting_source.tick("AAPL", 190.00)
     await _trade("AAPL", 5, "buy")
 
     await _trade("AAPL", 5, "sell")
@@ -238,7 +248,7 @@ async def test_closing_out_a_watched_position_keeps_the_feed(temp_db, price_cach
 async def test_removing_an_unheld_ticker_still_stops_the_feed(
     temp_db, price_cache, evicting_source
 ):
-    price_cache.update("AAPL", 190.00)
+    evicting_source.tick("AAPL", 190.00)
 
     await svc.remove_ticker("AAPL")
 

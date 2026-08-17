@@ -205,7 +205,9 @@ export function ChatPanel({
   }
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-panel">
+    // Below desk width the assistant floats over the grid instead of taking a
+    // column of it: 360px out of a 768px tablet is half the workstation.
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-[360px] max-w-[85vw] shrink-0 flex-col border-l border-border bg-panel shadow-[0_0_40px_rgba(0,0,0,0.55)] xl:static xl:max-w-none xl:shadow-none">
       <header className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-panel-raised px-3">
         <h2 className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-dim">
           <span aria-hidden className="text-accent">

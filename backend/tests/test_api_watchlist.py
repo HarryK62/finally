@@ -24,15 +24,23 @@ def client(temp_db, price_cache):
 
 
 @pytest.fixture
-def trading_client(temp_db, price_cache):
-    """Watchlist and portfolio routers together, over a feed that evicts prices."""
-    runtime.set_market_source(CacheEvictingSource())
+def trading_source(temp_db, price_cache):
+    """A feed carrying the default watchlist that behaves like the simulator."""
+    source = CacheEvictingSource()
+    source.tickers = list(SEED_PRICES)
+    runtime.set_market_source(source)
+    yield source
+    runtime.set_market_source(None)
+
+
+@pytest.fixture
+def trading_client(trading_source):
+    """Watchlist and portfolio routers together, over that feed."""
     app = FastAPI()
     app.include_router(watchlist_router.router)
     app.include_router(portfolio_router.router)
     with TestClient(app) as test_client:
         yield test_client
-    runtime.set_market_source(None)
 
 
 def test_get_watchlist_returns_the_seeded_tickers(client):
@@ -88,16 +96,18 @@ def test_delete_missing_ticker_is_404(client):
     assert response.json() == {"detail": "PYPL is not in the watchlist"}
 
 
-def test_a_held_ticker_stays_priced_and_sellable_after_deletion(trading_client, price_cache):
+def test_a_held_ticker_stays_priced_and_sellable_after_deletion(
+    trading_client, trading_source, price_cache
+):
     """End to end over HTTP: buy, drop from the watchlist, then still sell it."""
-    price_cache.update("TSLA", 250.03)
+    trading_source.tick("TSLA", 250.03)
     buy = trading_client.post(
         "/api/portfolio/trade", json={"ticker": "TSLA", "quantity": 5, "side": "buy"}
     )
     assert buy.status_code == 200
 
     assert trading_client.delete("/api/watchlist/TSLA").status_code == 204
-    price_cache.update("TSLA", 255.00)
+    trading_source.tick("TSLA", 255.00)  # The feed keeps ticking for a held ticker
 
     position = trading_client.get("/api/portfolio").json()["positions"][0]
     assert position["current_price"] == 255.00

@@ -72,7 +72,7 @@ export function TradeBar() {
       onSubmit={(event) => event.preventDefault()}
       className="flex h-14 shrink-0 items-center gap-3 border-t border-border bg-panel px-4"
     >
-      <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted">
+      <span className="hidden text-[9px] font-semibold uppercase tracking-[0.16em] text-muted sm:block">
         Market
         <br />
         Order
@@ -84,7 +84,7 @@ export function TradeBar() {
         placeholder="SYMBOL"
         aria-label="Ticker"
         maxLength={8}
-        className="numeric w-28 rounded-sm border border-border bg-terminal px-2 py-1.5 text-sm font-semibold uppercase text-ink placeholder:font-normal placeholder:text-muted focus:border-primary focus:outline-none"
+        className="numeric w-20 shrink-0 rounded-sm border border-border bg-terminal px-2 py-1.5 text-sm font-semibold uppercase text-ink placeholder:font-normal placeholder:text-muted focus:border-primary focus:outline-none xl:w-28"
       />
 
       <input
@@ -96,10 +96,10 @@ export function TradeBar() {
         min="0"
         step="any"
         inputMode="decimal"
-        className="numeric w-28 rounded-sm border border-border bg-terminal px-2 py-1.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none"
+        className="numeric w-20 shrink-0 rounded-sm border border-border bg-terminal px-2 py-1.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none xl:w-28"
       />
 
-      <div className="flex w-40 flex-col leading-none">
+      <div className="flex w-24 shrink-0 flex-col leading-none xl:w-40">
         <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted">
           Last
         </span>
@@ -108,7 +108,7 @@ export function TradeBar() {
         </span>
       </div>
 
-      <div className="flex w-44 flex-col leading-none">
+      <div className="flex w-28 shrink-0 flex-col leading-none xl:w-44">
         <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted">
           Estimated
         </span>
@@ -122,7 +122,7 @@ export function TradeBar() {
           type="button"
           onClick={() => void submit("buy")}
           disabled={busy}
-          className="w-24 rounded-sm bg-up px-4 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-terminal transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-16 shrink-0 xl:w-24 rounded-sm bg-up px-4 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-terminal transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending === "buy" ? "…" : "Buy"}
         </button>
@@ -130,7 +130,7 @@ export function TradeBar() {
           type="button"
           onClick={() => void submit("sell")}
           disabled={busy}
-          className="w-24 rounded-sm bg-down px-4 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-terminal transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-16 shrink-0 xl:w-24 rounded-sm bg-down px-4 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-terminal transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {pending === "sell" ? "…" : "Sell"}
         </button>
