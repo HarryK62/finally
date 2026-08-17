@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from anyio import to_thread
 from fastapi import HTTPException
 
 from app import runtime
 from app.market import MarketDataSource
 from app.market.seed_prices import SEED_PRICES
+from app.services import portfolio as portfolio_svc
 from app.services import watchlist as svc
 
 
@@ -38,9 +40,29 @@ class FakeSource(MarketDataSource):
         return list(self.tickers)
 
 
+class CacheEvictingSource(FakeSource):
+    """A fake that also drops the cached price, exactly as the simulator does.
+
+    Needed by the position-lifecycle tests below: the bug they pin is that losing
+    the cached price makes a holding unpriceable and therefore unsellable.
+    """
+
+    async def remove_ticker(self, ticker: str) -> None:
+        await super().remove_ticker(ticker)
+        runtime.get_price_cache().remove(ticker)
+
+
 @pytest.fixture
 def fake_source(price_cache):
     source = FakeSource()
+    runtime.set_market_source(source)
+    yield source
+    runtime.set_market_source(None)
+
+
+@pytest.fixture
+def evicting_source(price_cache):
+    source = CacheEvictingSource()
     runtime.set_market_source(source)
     yield source
     runtime.set_market_source(None)
@@ -120,3 +142,122 @@ async def test_mutations_work_without_a_running_market_source(temp_db, price_cac
 
 def test_get_watchlist_tickers_helper(temp_db):
     assert svc.get_watchlist_tickers() == list(SEED_PRICES)
+
+
+# --- Feed lifecycle for held tickers ---
+#
+# Removing a ticker from the watchlist used to stop its price feed unconditionally,
+# which froze the P&L of any open position at cost and made it permanently
+# unsellable ("No price available for TSLA"). A held ticker now keeps streaming
+# until the sell that closes it out.
+
+
+async def _trade(ticker: str, quantity: float, side: str):
+    """Execute a trade the way the API does — on an anyio worker thread.
+
+    The post-sell feed cleanup hands an async call back to the event loop from
+    that thread, so trades run here rather than being called synchronously.
+    """
+    return await to_thread.run_sync(portfolio_svc.execute_trade, ticker, quantity, side)
+
+
+async def test_removing_a_held_ticker_keeps_it_on_the_feed(temp_db, price_cache, evicting_source):
+    price_cache.update("TSLA", 250.03)
+    await _trade("TSLA", 5, "buy")
+
+    await svc.remove_ticker("TSLA")
+
+    assert evicting_source.removed == []
+    assert price_cache.get_price("TSLA") == pytest.approx(250.03)
+    assert "TSLA" not in [i.ticker for i in (await svc.get_watchlist()).tickers]
+
+
+async def test_a_removed_but_held_position_still_prices_live(temp_db, price_cache, evicting_source):
+    price_cache.update("TSLA", 250.00)
+    await _trade("TSLA", 5, "buy")
+    await svc.remove_ticker("TSLA")
+
+    price_cache.update("TSLA", 260.00)
+
+    position = portfolio_svc.get_portfolio().positions[0]
+    assert position.ticker == "TSLA"
+    assert position.current_price == 260.00
+    assert position.current_price != position.avg_cost
+    assert position.unrealized_pnl == 50.00
+
+
+async def test_a_removed_but_held_position_can_still_be_sold(temp_db, price_cache, evicting_source):
+    price_cache.update("TSLA", 250.00)
+    await _trade("TSLA", 5, "buy")
+    await svc.remove_ticker("TSLA")
+    price_cache.update("TSLA", 260.00)
+
+    result = await _trade("TSLA", 5, "sell")
+
+    assert result.trade.price == 260.00
+    assert result.trade.total == 1300.00
+    assert result.position is None
+    assert result.cash_balance == pytest.approx(10050.00)
+
+
+async def test_closing_out_an_unwatched_position_releases_the_feed(
+    temp_db, price_cache, evicting_source
+):
+    price_cache.update("TSLA", 250.00)
+    await _trade("TSLA", 5, "buy")
+    await svc.remove_ticker("TSLA")
+
+    await _trade("TSLA", 5, "sell")
+
+    assert evicting_source.removed == ["TSLA"]
+    assert price_cache.get_price("TSLA") is None
+
+
+async def test_a_partial_sell_keeps_the_feed(temp_db, price_cache, evicting_source):
+    price_cache.update("TSLA", 250.00)
+    await _trade("TSLA", 5, "buy")
+    await svc.remove_ticker("TSLA")
+
+    await _trade("TSLA", 2, "sell")
+
+    assert evicting_source.removed == []
+    assert price_cache.get_price("TSLA") == pytest.approx(250.00)
+
+
+async def test_closing_out_a_watched_position_keeps_the_feed(temp_db, price_cache, evicting_source):
+    """AAPL is still on the watchlist, so the user is still watching its price."""
+    price_cache.update("AAPL", 190.00)
+    await _trade("AAPL", 5, "buy")
+
+    await _trade("AAPL", 5, "sell")
+
+    assert evicting_source.removed == []
+    assert price_cache.get_price("AAPL") == pytest.approx(190.00)
+
+
+async def test_removing_an_unheld_ticker_still_stops_the_feed(
+    temp_db, price_cache, evicting_source
+):
+    price_cache.update("AAPL", 190.00)
+
+    await svc.remove_ticker("AAPL")
+
+    assert evicting_source.removed == ["AAPL"]
+    assert price_cache.get_price("AAPL") is None
+
+
+def test_a_close_out_off_the_event_loop_leaves_the_feed_alone(
+    temp_db, price_cache, evicting_source
+):
+    """Called synchronously there is no loop to run the async removal on.
+
+    Both API and chat trades go through ``to_thread.run_sync``, so this only
+    affects direct in-process calls; leaving the ticker streaming is the safe
+    outcome either way.
+    """
+    price_cache.update("PLTR", 50.00)
+    portfolio_svc.execute_trade("PLTR", 1, "buy")
+    portfolio_svc.execute_trade("PLTR", 1, "sell")
+
+    assert evicting_source.removed == []
+    assert price_cache.get_price("PLTR") == pytest.approx(50.00)

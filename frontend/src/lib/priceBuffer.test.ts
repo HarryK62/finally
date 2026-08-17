@@ -39,6 +39,40 @@ describe("mergeTicks", () => {
     expect(Object.keys(next)).toEqual(["NVDA"]);
   });
 
+  it("drops a ticker the frame stopped carrying", () => {
+    const prev = frame(tick("AAPL", 190), tick("TSLA", 250));
+
+    const next = mergeTicks(prev, frame(tick("AAPL", 190)));
+
+    expect(Object.keys(next)).toEqual(["AAPL"]);
+    expect(next.TSLA).toBeUndefined();
+  });
+
+  it("keeps the surviving tickers untouched while evicting the absent one", () => {
+    const prev = frame(tick("AAPL", 190), tick("MSFT", 410), tick("TSLA", 250));
+
+    const next = mergeTicks(prev, frame(tick("AAPL", 190), tick("MSFT", 410)));
+
+    // Evicting TSLA is a new map, but the rows that survived must not re-render.
+    expect(next).not.toBe(prev);
+    expect(next.AAPL).toBe(prev.AAPL);
+    expect(next.MSFT).toBe(prev.MSFT);
+    expect(next.TSLA).toBeUndefined();
+  });
+
+  it("evicts a ticker whose entry the parser dropped as unusable", () => {
+    // parsePriceFrame drops a non-finite price but keeps the rest of the frame;
+    // the survivor of that partial frame is all we are willing to price off.
+    const prev = frame(tick("AAPL", 190), tick("TSLA", 250));
+    const partial = parsePriceFrame(
+      JSON.stringify({ AAPL: { price: 191 }, TSLA: { price: null } }),
+    );
+
+    const next = mergeTicks(prev, partial!);
+
+    expect(Object.keys(next)).toEqual(["AAPL"]);
+  });
+
   it("treats a same-price tick at a new timestamp as an update", () => {
     const prev = frame(tick("AAPL", 190));
     const later = { ...prev.AAPL, timestamp: prev.AAPL.timestamp + 0.5 };

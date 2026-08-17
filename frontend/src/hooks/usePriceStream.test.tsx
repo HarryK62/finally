@@ -116,6 +116,28 @@ describe("usePriceStream", () => {
     expect(text("aapl")).toBe("191");
   });
 
+  it("stops pricing a ticker the stream no longer carries", () => {
+    render(<Probe />);
+    source().emitOpen();
+    source().emitData({ ...frame(190, 1_700_000_000), ...frame(250, 1_700_000_000, "TSLA") });
+    expect(text("tickers")).toBe("AAPL,TSLA");
+
+    // Every frame is the full map, so TSLA's absence means it stopped streaming.
+    source().emitData(frame(191, 1_700_000_000.5));
+    expect(text("tickers")).toBe("AAPL");
+    expect(text("aapl")).toBe("191");
+  });
+
+  it("keeps the whole map when a frame fails to parse", () => {
+    render(<Probe />);
+    source().emitOpen();
+    source().emitData({ ...frame(190, 1_700_000_000), ...frame(410, 1_700_000_000, "MSFT") });
+
+    source().emitData("not json");
+
+    expect(text("tickers")).toBe("AAPL,MSFT");
+  });
+
   it("accumulates a sparkline buffer and caps it at 120 points", () => {
     render(<Probe />);
     source().emitOpen();

@@ -7,9 +7,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import runtime
+from app.api import portfolio as portfolio_router
 from app.api import watchlist as watchlist_router
 from app.market.seed_prices import SEED_PRICES
-from tests.test_services_watchlist import FakeSource
+from tests.test_services_watchlist import CacheEvictingSource, FakeSource
 
 
 @pytest.fixture
@@ -17,6 +18,18 @@ def client(temp_db, price_cache):
     runtime.set_market_source(FakeSource())
     app = FastAPI()
     app.include_router(watchlist_router.router)
+    with TestClient(app) as test_client:
+        yield test_client
+    runtime.set_market_source(None)
+
+
+@pytest.fixture
+def trading_client(temp_db, price_cache):
+    """Watchlist and portfolio routers together, over a feed that evicts prices."""
+    runtime.set_market_source(CacheEvictingSource())
+    app = FastAPI()
+    app.include_router(watchlist_router.router)
+    app.include_router(portfolio_router.router)
     with TestClient(app) as test_client:
         yield test_client
     runtime.set_market_source(None)
@@ -73,6 +86,30 @@ def test_delete_missing_ticker_is_404(client):
     response = client.delete("/api/watchlist/PYPL")
     assert response.status_code == 404
     assert response.json() == {"detail": "PYPL is not in the watchlist"}
+
+
+def test_a_held_ticker_stays_priced_and_sellable_after_deletion(trading_client, price_cache):
+    """End to end over HTTP: buy, drop from the watchlist, then still sell it."""
+    price_cache.update("TSLA", 250.03)
+    buy = trading_client.post(
+        "/api/portfolio/trade", json={"ticker": "TSLA", "quantity": 5, "side": "buy"}
+    )
+    assert buy.status_code == 200
+
+    assert trading_client.delete("/api/watchlist/TSLA").status_code == 204
+    price_cache.update("TSLA", 255.00)
+
+    position = trading_client.get("/api/portfolio").json()["positions"][0]
+    assert position["current_price"] == 255.00
+    assert position["unrealized_pnl"] == 24.85  # 5 * (255.00 - 250.03)
+
+    sell = trading_client.post(
+        "/api/portfolio/trade", json={"ticker": "TSLA", "quantity": 5, "side": "sell"}
+    )
+    assert sell.status_code == 200, sell.text
+    assert sell.json()["trade"]["price"] == 255.00
+    # Closed out and unwatched: the feed is released.
+    assert price_cache.get_price("TSLA") is None
 
 
 def test_prices_appear_once_cached(client, price_cache):

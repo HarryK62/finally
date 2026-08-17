@@ -21,18 +21,30 @@ function sameTick(a: PriceTick | undefined, b: PriceTick): boolean {
  * Merge an incoming SSE payload into the current map, reusing the previous
  * object for any ticker whose price and timestamp are unchanged. Returns `prev`
  * itself when nothing moved, so `useState` can bail out of the render entirely.
+ *
+ * Every frame carries the full ticker map, so a ticker missing from `incoming`
+ * is one the server has stopped streaming (removed from the watchlist). Its last
+ * tick is dropped rather than frozen in place — a stale price would otherwise
+ * keep repricing a held position for the rest of the session.
  */
 export function mergeTicks(prev: PriceMap, incoming: PriceMap): PriceMap {
   let changed = false;
-  const next: PriceMap = { ...prev };
+  const next: PriceMap = {};
 
   for (const [ticker, tick] of Object.entries(incoming)) {
-    if (sameTick(prev[ticker], tick)) continue;
+    const before = prev[ticker];
+    if (sameTick(before, tick)) {
+      next[ticker] = before;
+      continue;
+    }
     next[ticker] = tick;
     changed = true;
   }
 
-  return changed ? next : prev;
+  // Equal counts with no in-place change means the key sets match, so the map
+  // is unchanged and the previous identity can stand.
+  if (!changed && Object.keys(next).length === Object.keys(prev).length) return prev;
+  return next;
 }
 
 /** Append a point, dropping the oldest once the buffer is full. */

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from anyio import from_thread
 from fastapi import HTTPException
 
 from app.config import DEFAULT_USER_ID
@@ -22,7 +23,7 @@ from app.db.database import (
     utc_now_iso,
     write_connection,
 )
-from app.runtime import get_price_cache
+from app.runtime import get_market_source, get_price_cache
 from app.schemas import (
     HistoryResponse,
     PortfolioResponse,
@@ -95,6 +96,50 @@ def _fetch_cash(conn: sqlite3.Connection, user_id: str) -> float:
     if row is None:
         raise HTTPException(status_code=404, detail=f"No profile found for user {user_id}")
     return float(row["cash_balance"])
+
+
+def _is_watched(conn: sqlite3.Connection, ticker: str, user_id: str) -> bool:
+    """True if the ticker is on the user's watchlist."""
+    row = conn.execute(
+        "SELECT 1 FROM watchlist WHERE user_id = ? AND ticker = ?", (user_id, ticker)
+    ).fetchone()
+    return row is not None
+
+
+def has_position(ticker: str, user_id: str = DEFAULT_USER_ID) -> bool:
+    """True if the user still holds shares of ``ticker``.
+
+    Used by the watchlist service to decide whether removing a ticker may also
+    stop its price feed: a held position must stay priceable so it can be valued
+    and sold.
+    """
+    ensure_db()
+    ticker = normalize_ticker(ticker)
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM positions WHERE user_id = ? AND ticker = ? AND quantity > ?",
+            (user_id, ticker, QUANTITY_EPSILON),
+        ).fetchone()
+    return row is not None
+
+
+def _stop_streaming(ticker: str) -> None:
+    """Drop a ticker from the live feed once it is neither held nor watched.
+
+    This runs on the worker thread executing a trade, but the market data source
+    API is ``async``, so the coroutine is handed back to the event loop that owns
+    the thread. Both failure modes are benign and leave the ticker streaming: no
+    source is running yet, or the service was called synchronously rather than
+    through ``to_thread.run_sync`` (unit tests), in which case there is no loop
+    to hand the call to.
+    """
+    try:
+        source = get_market_source()
+        from_thread.run(source.remove_ticker, ticker)
+    except RuntimeError:
+        logger.debug("Could not detach %s from the live feed; leaving it streaming", ticker)
+        return
+    logger.info("%s is no longer held or watched; removed from the live feed", ticker)
 
 
 # --- Public API ---
@@ -205,7 +250,10 @@ def execute_trade(
             new_avg_cost = held_avg_cost  # A sell never changes average cost
             new_cash = cash + total
 
-        if new_quantity <= QUANTITY_EPSILON:
+        closed_out = new_quantity <= QUANTITY_EPSILON
+        detach_from_feed = closed_out and not _is_watched(conn, ticker, user_id)
+
+        if closed_out:
             conn.execute(
                 "DELETE FROM positions WHERE user_id = ? AND ticker = ?", (user_id, ticker)
             )
@@ -232,6 +280,13 @@ def execute_trade(
             """,
             (trade_id, user_id, ticker, side, quantity, price, now),
         )
+
+    # A ticker can be off the watchlist while still held (see
+    # app.services.watchlist.remove_ticker, which keeps such a feed alive so the
+    # holding stays priceable). Closing it out is the point where the feed is no
+    # longer needed by anyone.
+    if detach_from_feed:
+        _stop_streaming(ticker)
 
     portfolio = get_portfolio(user_id)
     record_snapshot(user_id, total_value=portfolio.total_value)

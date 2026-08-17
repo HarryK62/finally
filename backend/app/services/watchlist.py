@@ -18,7 +18,7 @@ from app.config import DEFAULT_USER_ID
 from app.db.database import ensure_db, get_connection, new_id, utc_now_iso, write_connection
 from app.runtime import get_market_source, get_price_cache
 from app.schemas import WatchlistItem, WatchlistResponse
-from app.services.portfolio import api_round, normalize_ticker
+from app.services.portfolio import api_round, has_position, normalize_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -144,11 +144,21 @@ async def add_ticker(ticker: str, user_id: str = DEFAULT_USER_ID) -> WatchlistIt
 async def remove_ticker(ticker: str, user_id: str = DEFAULT_USER_ID) -> None:
     """Remove a ticker from the watchlist and stop streaming prices for it.
 
+    A ticker the user still holds keeps its price feed: dropping it would freeze
+    the position's P&L at cost and make it unsellable, because
+    :func:`app.services.portfolio.execute_trade` rejects any order without a
+    cached price. The feed is released later, when the sell that closes the
+    position finds the ticker off the watchlist.
+
     Raises:
         HTTPException: 404 if the ticker is not in the watchlist.
     """
     ticker = normalize_ticker(ticker)
     await to_thread.run_sync(_delete_row, ticker, user_id)
+
+    if await to_thread.run_sync(has_position, ticker, user_id):
+        logger.info("%s is still held; keeping it on the live feed after removal", ticker)
+        return
 
     try:
         await get_market_source().remove_ticker(ticker)

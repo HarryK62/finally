@@ -24,6 +24,6 @@ async def create_watchlist_entry(request: WatchlistAddRequest) -> WatchlistItem:
 
 @router.delete("/{ticker}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_watchlist_entry(ticker: str) -> Response:
-    """Remove a ticker and stop streaming prices for it."""
+    """Remove a ticker, stopping its price feed unless the user still holds it."""
     await watchlist_service.remove_ticker(ticker)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
