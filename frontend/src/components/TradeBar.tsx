@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ApiError } from "@/lib/api";
 import { fmtCurrency, fmtNumber, fmtQuantity } from "@/lib/format";
@@ -14,16 +14,20 @@ import { usePrice, useTerminal } from "@/state/terminal";
  */
 export function TradeBar() {
   const { selected, trade } = useTerminal();
-  const [ticker, setTicker] = useState("");
+  const [ticker, setTicker] = useState(selected ?? "");
   const [quantity, setQuantity] = useState("");
   const [pending, setPending] = useState<TradeSide | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fill, setFill] = useState<string | null>(null);
 
   // Follow the chart selection, but never overwrite something being typed.
-  useEffect(() => {
-    if (selected) setTicker((current) => (current === "" ? selected : current));
-  }, [selected]);
+  // Adjusted during render rather than in an effect so the field is already
+  // correct on the render that observes the new selection.
+  const [seenSelected, setSeenSelected] = useState(selected);
+  if (selected !== seenSelected) {
+    setSeenSelected(selected);
+    if (selected && ticker === "") setTicker(selected);
+  }
 
   const symbol = ticker.trim().toUpperCase();
   const price = usePrice(symbol || null);

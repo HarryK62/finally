@@ -1,0 +1,79 @@
+# Containerised E2E run: the production image plus a Playwright container.
+#
+#     docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit
+#     docker compose -f test/docker-compose.test.yml down --remove-orphans
+#
+# The exit code of the `playwright` container is the exit code of the suite.
+#
+# The other supported path — and the faster one for local iteration — needs no
+# Docker at all:
+#
+#     cd test && npm install && npx playwright install chromium && npm test
+#
+# which builds the frontend export and starts uvicorn itself (playwright.config.ts).
+#
+# Notes on the choices below:
+#   - `app` is built from the repository-root Dockerfile (devops-engineer owns
+#     it), so the image under test is the image that ships. The frontend export
+#     is baked into that image, so nothing is built here.
+#   - `/app/db` is a tmpfs: every `up` starts from an empty, freshly seeded
+#     database, and the developer's `db/finally.db` is never mounted or touched.
+#   - LLM_MOCK=true with blanked keys means the suite cannot reach OpenRouter or
+#     Massive even if the developer's .env has real ones.
+#   - `E2E_EXTERNAL_SERVER=1` tells playwright.config.ts not to start its own
+#     uvicorn; the browser talks to the `app` service over the compose network.
+#   - The repository is bind-mounted so the specs are the ones in the working
+#     tree, but `test/node_modules` is masked by an anonymous volume: the host
+#     copy is platform-specific and must not leak into (or be overwritten by)
+#     the Linux container.
+#   - The Playwright image tag must match the @playwright/test version in
+#     test/package.json; bump both together.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      DB_PATH: /app/db/finally.db
+      LLM_MOCK: "true"
+      OPENROUTER_API_KEY: " "
+      MASSIVE_API_KEY: " "
+      PYTHONUNBUFFERED: "1"
+    tmpfs:
+      - /app/db
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status == 200
+          else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.62.1-noble
+    depends_on:
+      app:
+        condition: service_healthy
+    # Share the app's network namespace so the browser can reach it on
+    # 127.0.0.1. Chromium auto-upgrades plain-http navigations to https for
+    # anything that is not a loopback host, which turns `http://app:8000` into
+    # ERR_SSL_PROTOCOL_ERROR; loopback is exempt from that upgrade.
+    network_mode: "service:app"
+    working_dir: /work/test
+    environment:
+      # The suite talks to the app container instead of starting its own server.
+      E2E_BASE_URL: http://127.0.0.1:8000
+      E2E_EXTERNAL_SERVER: "1"
+      CI: "1"
+    volumes:
+      - ..:/work
+      - /work/test/node_modules
+    command: >-
+      bash -lc "npm ci --no-audit --no-fund && npx playwright test"

@@ -18,14 +18,16 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import PurePath
 
 from anyio import to_thread
 from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 from starlette.types import Scope
 
-from app.api import health, portfolio, watchlist
+from app.api import chat, health, portfolio, watchlist
 from app.config import SNAPSHOT_INTERVAL_SECONDS, get_settings
 from app.db.database import init_db
 from app.market import create_market_data_source, create_stream_router
@@ -82,16 +84,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 class SPAStaticFiles(StaticFiles):
     """Static files with a single-page-app fallback to ``index.html``.
 
-    Unknown ``/api`` paths keep their 404 so API errors are never masked by HTML.
+    A miss can surface two ways: ``StaticFiles`` raises 404, but in ``html=True``
+    mode it first looks for ``404.html`` — which the Next.js export ships — and
+    returns that as an ordinary 404 response. Both have to trigger the fallback.
+
+    Unknown ``/api`` paths keep a plain 404 so API errors are never masked by HTML.
     """
 
-    async def get_response(self, path: str, scope: Scope):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        if PurePath(path).parts[:1] == ("api",):
+            raise StarletteHTTPException(status_code=404)
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404 and not path.startswith("api"):
-                return await super().get_response("index.html", scope)
-            raise
+            if exc.status_code != 404:
+                raise
+        else:
+            if response.status_code != 404:
+                return response
+        return await super().get_response("index.html", scope)
 
 
 def _mount_static(app: FastAPI) -> None:
@@ -132,8 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(portfolio.router)
     app.include_router(watchlist.router)
     app.include_router(_get_stream_router())
-    # AI engineer: register the chat router here, immediately below this line:
-    #     from app.api import chat  ->  app.include_router(chat.router)
+    app.include_router(chat.router)
 
     # Static mount must stay last so it never shadows an /api route.
     _mount_static(app)

@@ -436,8 +436,15 @@ cd frontend && npm run dev                          # frontend on :3000 (proxies
 cd frontend && npm run build                        # static export → frontend/out
 ```
 
-**Docker is NOT available in this environment** (Docker Desktop WSL integration is off).
-Write the Dockerfile and compose files to spec, validate them by inspection and linting, but do
-not block on running `docker build`. E2E tests must therefore be runnable against a
-locally-started uvicorn + static export, with the docker-compose path provided as the documented
-alternative.
+**Docker IS available in this environment** (verified 2026-08-17: daemon server 29.6.1; the
+image builds and runs). An earlier revision of this section claimed the opposite — that claim was
+stale and is retracted. Build and run the container for real rather than validating by inspection.
+
+```bash
+docker compose up -d --build && curl http://localhost:8000/api/health
+```
+
+Both run paths are supported and either is acceptable for E2E: a locally-started uvicorn plus
+static export, or docker-compose. If you use the container, note that SQLite persists in the
+named volume `finally-data` between runs — use a throwaway volume or a per-run `DB_PATH` override
+so fresh-start scenarios are honest, and never delete the developer's `db/finally.db`.

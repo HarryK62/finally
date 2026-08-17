@@ -141,13 +141,18 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }, [loadHistory]);
 
   // Default the chart to the first watched ticker, and never leave the selection
-  // pointing at a ticker that has been removed.
-  useEffect(() => {
-    if (watchlist.length === 0) return;
-    setSelected((current) =>
-      current && watchlist.some((item) => item.ticker === current) ? current : watchlist[0].ticker,
-    );
-  }, [watchlist]);
+  // pointing at a ticker that has been removed. Adjusted during render when the
+  // watchlist changes, so no panel ever paints against a dead selection.
+  const [seenWatchlist, setSeenWatchlist] = useState(watchlist);
+  if (watchlist !== seenWatchlist) {
+    setSeenWatchlist(watchlist);
+    if (
+      watchlist.length > 0 &&
+      !(selected && watchlist.some((item) => item.ticker === selected))
+    ) {
+      setSelected(watchlist[0].ticker);
+    }
+  }
 
   const trade = useCallback(
     async (ticker: string, quantity: number, side: TradeSide) => {

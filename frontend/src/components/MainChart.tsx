@@ -51,7 +51,7 @@ function ChartTooltip({
 export function MainChart() {
   const { selected, buffers, prices, watchlist } = useTerminal();
 
-  const points = selected ? (buffers[selected] ?? []) : [];
+  const points = useMemo(() => (selected ? (buffers[selected] ?? []) : []), [selected, buffers]);
   const tick = selected ? prices[selected] : undefined;
   const watched = watchlist.find((item) => item.ticker === selected);
   const price = tick?.price ?? watched?.price ?? null;

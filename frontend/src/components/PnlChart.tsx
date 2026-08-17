@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -21,6 +21,8 @@ const UP = "#3fb950";
 const DOWN = "#f85149";
 const GRID = "#232b36";
 const AXIS = "#6e7c8c";
+/** How often the pinned live point walks forward along the time axis. */
+const CLOCK_MS = 5_000;
 
 function clockLabel(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-GB", {
@@ -54,6 +56,14 @@ export function PnlChart() {
   const { snapshots, portfolio, prices } = useTerminal();
   const live = useMemo(() => computeLivePortfolio(portfolio, prices), [portfolio, prices]);
 
+  // The wall clock is impure and cannot be read during render, so hold it in
+  // state and advance it on a timer instead.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
   const model = useMemo(() => {
     const series = snapshots
       .map((snapshot) => ({
@@ -65,7 +75,6 @@ export function PnlChart() {
     // Snapshots land every 30s; pin the live value on the end so the line does
     // not visibly lag the header.
     if (portfolio) {
-      const now = Date.now();
       const last = series[series.length - 1];
       if (!last || now - last.t > 1000) series.push({ t: now, v: live.totalValue });
     }
@@ -87,7 +96,7 @@ export function PnlChart() {
       changePercent: open === 0 ? 0 : ((last - open) / open) * 100,
       rising: last >= open,
     };
-  }, [snapshots, portfolio, live.totalValue]);
+  }, [snapshots, portfolio, live.totalValue, now]);
 
   const color = model?.rising ?? true ? UP : DOWN;
 

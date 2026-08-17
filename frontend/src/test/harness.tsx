@@ -9,7 +9,11 @@ import type { Position, PriceTick, WatchlistItem } from "@/lib/types";
 export function renderWithTerminal(
   ui: ReactElement,
   overrides: Partial<TerminalState> = {},
-): RenderResult & { state: TerminalState } {
+): RenderResult & {
+  state: TerminalState;
+  /** Push new context values into the *same* mounted tree, as a live tick would. */
+  update: (next: Partial<TerminalState>) => void;
+} {
   const state: TerminalState = {
     prices: {},
     buffers: {},
@@ -29,10 +33,19 @@ export function renderWithTerminal(
     ...overrides,
   };
 
-  const result = render(
-    <TerminalContext.Provider value={state}>{ui}</TerminalContext.Provider>,
+  let current = state;
+  const wrap = (value: TerminalState) => (
+    <TerminalContext.Provider value={value}>{ui}</TerminalContext.Provider>
   );
-  return { ...result, state };
+
+  const result = render(wrap(current));
+
+  const update = (next: Partial<TerminalState>) => {
+    current = { ...current, ...next };
+    result.rerender(wrap(current));
+  };
+
+  return { ...result, state, update };
 }
 
 export function tick(ticker: string, price: number, previous = price): PriceTick {

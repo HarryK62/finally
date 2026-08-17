@@ -83,3 +83,25 @@ def test_spa_fallback_serves_index_html(temp_db, tmp_path, monkeypatch):
         assert client.get("/favicon.ico").content == b"icon"
         assert client.get("/api/nope").status_code == 404
     runtime.set_market_source(None)
+
+
+def test_spa_fallback_wins_over_a_404_html(temp_db, tmp_path, monkeypatch):
+    """The Next.js export ships a 404.html, which html mode returns instead of raising."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<!doctype html><title>FinAlly</title>")
+    (static_dir / "404.html").write_text("<!doctype html><title>Not found</title>")
+    monkeypatch.setenv("STATIC_DIR", str(static_dir))
+
+    with TestClient(create_app()) as client:
+        assert client.get("/").text.startswith("<!doctype html><title>FinAlly")
+
+        deep = client.get("/portfolio/deep/link")
+        assert deep.status_code == 200
+        assert deep.text.startswith("<!doctype html><title>FinAlly")
+
+        # An unknown /api path keeps a bare 404 - never the 404.html page.
+        missing_api = client.get("/api/nope")
+        assert missing_api.status_code == 404
+        assert "Not found</title>" not in missing_api.text
+    runtime.set_market_source(None)
