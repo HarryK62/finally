@@ -1,0 +1,37 @@
+# Convenience wrapper around the single production container.
+#
+#   docker compose up -d --build     start (rebuilding the image)
+#   docker compose logs -f           follow logs
+#   docker compose down              stop and remove the container (keeps data)
+#   docker compose down -v           stop and ALSO delete the SQLite volume
+#
+# The scripts in scripts/ do the same thing with plain `docker run`; use
+# whichever you prefer.
+
+services:
+  finally:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finally:latest
+    container_name: finally
+    ports:
+      - "8000:8000"
+    env_file:
+      # Optional: the app falls back to the market simulator and needs no keys.
+      # Chat requires OPENROUTER_API_KEY (or LLM_MOCK=true). See .env.example.
+      - path: .env
+        required: false
+    environment:
+      # Both match app/config.py's defaults for this image layout; pinned here
+      # so the runtime contract is explicit rather than derived.
+      DB_PATH: /app/db/finally.db
+      STATIC_DIR: /app/backend/static
+    volumes:
+      - finally-data:/app/db
+    restart: unless-stopped
+
+volumes:
+  finally-data:
+    # Fixed name so the plain `docker run` scripts and compose share one volume.
+    name: finally-data

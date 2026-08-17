@@ -1,0 +1,28 @@
+# Normalize all text files to LF in the repository.
+# The working tree also gets LF, so the repo stays byte-identical whether it is
+# checked out from WSL, native Windows, macOS, or inside the Docker build.
+* text=auto eol=lf
+
+# Shell scripts must keep LF or they break under sh/bash (and in the container).
+*.sh text eol=lf
+
+# PowerShell scripts are CRLF by convention on Windows.
+*.ps1 text eol=crlf
+
+# Binary files: never touch, never diff as text.
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.db binary
+*.pdf binary
+
+# Lockfiles are generated; keep them out of diff noise and merge conflicts.
+package-lock.json -diff linguist-generated
+uv.lock -diff linguist-generated

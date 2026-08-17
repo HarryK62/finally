@@ -1,0 +1,52 @@
+# Keep the build context small and deterministic. Anything listed here is
+# rebuilt inside the image (node_modules, .venv, frontend/out) or must never
+# enter it (.env, the runtime database, git history).
+
+# Version control / CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Secrets — the container gets its environment from --env-file / env_file, so
+# no .env of any kind belongs in the build context.
+.env
+.env.*
+
+# Node
+**/node_modules
+**/.next
+**/npm-debug.log*
+frontend/out
+frontend/coverage
+frontend/tsconfig.tsbuildinfo
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/htmlcov
+**/.coverage
+**/.coverage.*
+**/coverage.xml
+
+# Runtime SQLite database (created inside the volume at /app/db)
+db/*.db
+db/*.db-wal
+db/*.db-shm
+
+# Not needed at runtime
+planning
+test
+Dockerfile
+docker-compose.yml
+**/*.md
+!backend/README.md
+LICENSE
+.claude
+.vscode
+.idea
+.DS_Store

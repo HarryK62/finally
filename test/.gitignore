@@ -1,0 +1,12 @@
+node_modules/
+
+# Throwaway SQLite databases, one directory per run (see playwright.config.ts).
+.tmp/
+
+# Frozen copy of the frontend export, written by scripts/prepare.mjs.
+.static/
+
+# Playwright reports, traces and screenshots.
+.playwright/
+playwright-report/
+test-results/
